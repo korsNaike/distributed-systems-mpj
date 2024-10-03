@@ -1,3 +1,4 @@
+import NonBlockReceive.FilteringAndProbe;
 import NonBlockReceive.TestReceive;
 import mpi.*;
 
@@ -6,7 +7,7 @@ import java.lang.*;
 public class Main {
 
     public static void main(String[] args) throws Exception, MPIException {
-        TestReceive.startTest(args);
+        FilteringAndProbe.start(args);
     }
 
     public static void taskEvenNotEven() {
