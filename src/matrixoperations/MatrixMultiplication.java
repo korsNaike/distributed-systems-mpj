@@ -45,109 +45,70 @@ public class MatrixMultiplication {
         int rank = MPI.COMM_WORLD.Rank();
         int size = MPI.COMM_WORLD.Size();
 
-        // Процесс 0 делит и отправляет части A и B другим процессам
+        int rowsPerProc = n1 / (size - 1);  // Количество строк, обрабатываемых каждым процессом
         if (rank == 0) {
-            // Логика разбиения и рассылки для A и B по процессам
-
-            // Отправка частей матрицы A
-            for (int row = 0, iteration = 1; row < n1; row++, iteration++) {
-                int[] rowToSend = matrixA[row];
-                int rankRecipient = iteration % size;
-                if (rankRecipient == 0) {
-                    iteration++;
-                    rankRecipient++;
-                }
-                System.out.println(
-                        "Send " + row + "(" + Arrays.toString(rowToSend) + ")" + " row to " + rankRecipient + " rank"
-                );
-                MPI.COMM_WORLD.Send(rowToSend, 0, n2, MPI.INT, rankRecipient, 0);
-            }
-
-            // Отправка частей матрицы B
-            for (int col = 0, iteration = 1; col < n3; col++, iteration++) {
-                int rankRecipient = iteration % size;
-                if (rankRecipient == 0) {
-                    iteration++;
-                    rankRecipient++;
-                }
-                int[] column_to_send = new int[n2];
-                for (int row_index = 0; row_index < n2; row_index++) {
-                    column_to_send[row_index] = matrixB[row_index][col];
-                }
-                System.out.println(
-                        "Send column " + col+ "(" + Arrays.toString(column_to_send) + ")"
-                                + " to " + rankRecipient + " rank"
-                );
-                MPI.COMM_WORLD.Send(column_to_send, 0, n2, MPI.INT, rankRecipient, 1);
-            }
-        } else {
-            // Получаем части матрицы A
-            int[][] localRows = new int[n1][n2];
-            for (int row = 0, iteration = 1; row < n1; row++, iteration++) {
-                int rankRecipient = iteration % size;
-                if (rankRecipient == 0) {
-                    iteration++;
-                    rankRecipient++;
-                }
-                if (rank == rankRecipient) {
-                    MPI.COMM_WORLD.Recv(localRows[row], 0, n2, MPI.INT, 0, 0);
-                    System.out.println(
-                            "Rank " + rank + " get row " + row +
-                            "(" + Arrays.toString(localRows[row]) + ")"
-                            );
-                }
-            }
-
-            // Получаем части матрицы B
-            int[][] localColumns = new int[n3][n2];
-            for (int col = 0, iteration = 1; col < n3; col++, iteration++) {
-                int rankRecipient = iteration % size;
-                if (rankRecipient == 0) {
-                    iteration++;
-                    rankRecipient++;
-                }
-                if (rank == rankRecipient) {
-                    MPI.COMM_WORLD.Recv(localColumns[col], 0, n2, MPI.INT, 0, 1);
-                    System.out.println(
-                            "Rank " + rank + " get column " + col +
-                                    "(" + Arrays.toString(localColumns[col]) + ")"
-                    );
-                }
-            }
-
-            for (int iteration = 0, rankSenderCounter = 0; iteration < n1; iteration++, rankSenderCounter++) {
-                int rankSender = rankSenderCounter % size;
-                if (rankSender == 0) {
-                    rankSenderCounter++;
-                    rankSender++;
-                }
-                if (rankSender != rank) {
-                    continue;
-                }
-                int[] localRow = localRows[iteration];
-                int[] localColumn = localColumns[iteration];
-                int[] localRowForResult = new int[n1];
-
-                for (int i = 0; i < n1; i++) {
-                    localRowForResult[i] = 0;
-                    for (int j = 0; j < n1; j++) {
-                        localRowForResult[i] += localRow[j] * localColumn[j];
+            // Процесс 0 разделяет матрицы и отправляет части A и B другим процессам
+            for (int i = 1; i < size; i++) {
+                // Отправка строк матрицы A каждому процессу
+                for (int j = 0; j < rowsPerProc; j++) {
+                    int row = (i - 1) * rowsPerProc + j;
+                    if (row < n1) {
+                        MPI.COMM_WORLD.Send(matrixA[row], 0, n2, MPI.INT, i, 0);
                     }
                 }
-                System.out.println("Send local Row Result" + Arrays.toString(localRowForResult) + " from " + rank);
-                MPI.COMM_WORLD.Send(localRowForResult, 0, n1, MPI.INT, 0, 0);
+                // Отправка всей матрицы B каждому процессу
+                for (int col = 0; col < n3; col++) {
+                    int[] columnToSend = new int[n2];
+                    for (int rowIdx = 0; rowIdx < n2; rowIdx++) {
+                        columnToSend[rowIdx] = matrixB[rowIdx][col];
+                    }
+                    MPI.COMM_WORLD.Send(columnToSend, 0, n2, MPI.INT, i, 1);
+                }
+            }
+        } else {
+            // Получение строк матрицы A для текущего процесса
+            int[][] localRows = new int[rowsPerProc][n2];
+            for (int j = 0; j < rowsPerProc; j++) {
+                int globalRow = (rank - 1) * rowsPerProc + j;
+                if (globalRow < n1) {
+                    MPI.COMM_WORLD.Recv(localRows[j], 0, n2, MPI.INT, 0, 0);
+                }
+            }
+
+            // Получение всей матрицы B
+            int[][] localColumns = new int[n3][n2];
+            for (int col = 0; col < n3; col++) {
+                MPI.COMM_WORLD.Recv(localColumns[col], 0, n2, MPI.INT, 0, 1);
+            }
+
+            // Умножение строк и столбцов и отправка результатов обратно процессу 0
+            int[][] localResult = new int[rowsPerProc][n3];
+            for (int i = 0; i < rowsPerProc; i++) {
+                for (int j = 0; j < n3; j++) {
+                    localResult[i][j] = 0;
+                    for (int k = 0; k < n2; k++) {
+                        localResult[i][j] += localRows[i][k] * localColumns[j][k];
+                    }
+                }
+            }
+            // Отправка результата обратно процессу 0
+            for (int i = 0; i < rowsPerProc; i++) {
+                int globalRow = (rank - 1) * rowsPerProc + i;
+                if (globalRow < n1) {
+                    MPI.COMM_WORLD.Send(localResult[i], 0, n3, MPI.INT, 0, 2);
+                }
             }
         }
 
-        // Сбор локальных результатов на нулевом процессе
+        // Сбор результатов на процессе 0
         if (rank == 0) {
-            for (int iteration = 0, rankSenderCounter = 0; iteration < n1; iteration++, rankSenderCounter++) {
-                int rankSender = rankSenderCounter % size;
-                if (rankSender == 0) {
-                    rankSenderCounter++;
-                    rankSender++;
+            for (int i = 1; i < size; i++) {
+                for (int j = 0; j < rowsPerProc; j++) {
+                    int row = (i - 1) * rowsPerProc + j;
+                    if (row < n1) {
+                        MPI.COMM_WORLD.Recv(resultMatrix[row], 0, n3, MPI.INT, i, 2);
+                    }
                 }
-                MPI.COMM_WORLD.Recv(resultMatrix[iteration], 0, n1, MPI.INT, rankSender, 0);
             }
         }
 
