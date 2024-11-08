@@ -1,6 +1,6 @@
 package matrixoperations;
 
-import mpi.MPI;
+import mpi.*;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
@@ -110,6 +110,172 @@ public class MatrixMultiplication {
                     }
                 }
             }
+        }
+
+        MPI.Finalize();
+    }
+
+    public void syncMultiply(String[] args) {
+        MPI.Init(args);
+        int rank = MPI.COMM_WORLD.Rank();
+        int size = MPI.COMM_WORLD.Size();
+
+        int rowsPerProc = n1 / (size - 1);  // Количество строк, обрабатываемых каждым процессом
+        if (rank == 0) {
+            // Процесс 0 разделяет матрицы и отправляет части A и B другим процессам
+            for (int i = 1; i < size; i++) {
+                // Отправка строк матрицы A каждому процессу
+                for (int j = 0; j < rowsPerProc; j++) {
+                    int row = (i - 1) * rowsPerProc + j;
+                    if (row < n1) {
+                        MPI.COMM_WORLD.Ssend(matrixA[row], 0, n2, MPI.INT, i, 0);
+                    }
+                }
+                // Отправка всей матрицы B каждому процессу
+                for (int col = 0; col < n3; col++) {
+                    int[] columnToSend = new int[n2];
+                    for (int rowIdx = 0; rowIdx < n2; rowIdx++) {
+                        columnToSend[rowIdx] = matrixB[rowIdx][col];
+                    }
+                    MPI.COMM_WORLD.Ssend(columnToSend, 0, n2, MPI.INT, i, 1);
+                }
+            }
+        } else {
+            // Получение строк матрицы A для текущего процесса
+            int[][] localRows = new int[rowsPerProc][n2];
+            for (int j = 0; j < rowsPerProc; j++) {
+                int globalRow = (rank - 1) * rowsPerProc + j;
+                if (globalRow < n1) {
+                    MPI.COMM_WORLD.Recv(localRows[j], 0, n2, MPI.INT, 0, 0);
+                }
+            }
+
+            // Получение всей матрицы B
+            int[][] localColumns = new int[n3][n2];
+            for (int col = 0; col < n3; col++) {
+                MPI.COMM_WORLD.Recv(localColumns[col], 0, n2, MPI.INT, 0, 1);
+            }
+
+            // Умножение строк и столбцов и отправка результатов обратно процессу 0
+            int[][] localResult = new int[rowsPerProc][n3];
+            for (int i = 0; i < rowsPerProc; i++) {
+                for (int j = 0; j < n3; j++) {
+                    localResult[i][j] = 0;
+                    for (int k = 0; k < n2; k++) {
+                        localResult[i][j] += localRows[i][k] * localColumns[j][k];
+                    }
+                }
+            }
+            // Отправка результата обратно процессу 0
+            for (int i = 0; i < rowsPerProc; i++) {
+                int globalRow = (rank - 1) * rowsPerProc + i;
+                if (globalRow < n1) {
+                    MPI.COMM_WORLD.Ssend(localResult[i], 0, n3, MPI.INT, 0, 2);
+                }
+            }
+        }
+
+        // Сбор результатов на процессе 0
+        if (rank == 0) {
+            for (int i = 1; i < size; i++) {
+                for (int j = 0; j < rowsPerProc; j++) {
+                    int row = (i - 1) * rowsPerProc + j;
+                    if (row < n1) {
+                        MPI.COMM_WORLD.Recv(resultMatrix[row], 0, n3, MPI.INT, i, 2);
+                    }
+                }
+            }
+        }
+
+        MPI.Finalize();
+    }
+
+    public void imultiply(String[] args) {
+        MPI.Init(args);
+        int rank = MPI.COMM_WORLD.Rank();
+        int size = MPI.COMM_WORLD.Size();
+
+        int rowsPerProc = n1 / (size - 1);  // Количество строк, обрабатываемых каждым процессом
+
+        if (rank == 0) {
+            // Процесс 0 разделяет матрицы и отправляет части A и B другим процессам
+            for (int i = 1; i < size; i++) {
+                // Отправка строк матрицы A каждому процессу
+                for (int j = 0; j < rowsPerProc; j++) {
+                    int row = (i - 1) * rowsPerProc + j;
+                    if (row < n1) {
+                        MPI.COMM_WORLD.Isend(matrixA[row], 0, n2, MPI.INT, i, 0);
+                    }
+                }
+                // Отправка всей матрицы B каждому процессу
+                for (int col = 0; col < n3; col++) {
+                    int[] columnToSend = new int[n2];
+                    for (int rowIdx = 0; rowIdx < n2; rowIdx++) {
+                        columnToSend[rowIdx] = matrixB[rowIdx][col];
+                    }
+                    MPI.COMM_WORLD.Isend(columnToSend, 0, n2, MPI.INT, i, 1);
+                }
+            }
+        } else {
+            // Неблокирующее получение строк матрицы A для текущего процесса
+            int[][] localRows = new int[rowsPerProc][n2];
+            Request[] requestsA = new Request[rowsPerProc];
+            for (int j = 0; j < rowsPerProc; j++) {
+                int globalRow = (rank - 1) * rowsPerProc + j;
+                if (globalRow < n1) {
+                    requestsA[j] = MPI.COMM_WORLD.Irecv(localRows[j], 0, n2, MPI.INT, 0, 0);
+                }
+            }
+
+            // Неблокирующее получение всей матрицы B
+            int[][] localColumns = new int[n3][n2];
+            Request[] requestsB = new Request[n3];
+            for (int col = 0; col < n3; col++) {
+                requestsB[col] = MPI.COMM_WORLD.Irecv(localColumns[col], 0, n2, MPI.INT, 0, 1);
+            }
+
+            // Ожидание завершения всех операций приема
+            Request.Waitall(requestsA);
+            Request.Waitall(requestsB);
+
+            // Умножение строк и столбцов и отправка результатов обратно процессу 0
+            int[][] localResult = new int[rowsPerProc][n3];
+            for (int i = 0; i < rowsPerProc; i++) {
+                for (int j = 0; j < n3; j++) {
+                    localResult[i][j] = 0;
+                    for (int k = 0; k < n2; k++) {
+                        localResult[i][j] += localRows[i][k] * localColumns[j][k];
+                    }
+                }
+            }
+
+            // Неблокирующая отправка результата обратно процессу 0
+            Request[] requestsResult = new Request[rowsPerProc];
+            for (int i = 0; i < rowsPerProc; i++) {
+                int globalRow = (rank - 1) * rowsPerProc + i;
+                if (globalRow < n1) {
+                    requestsResult[i] = MPI.COMM_WORLD.Isend(localResult[i], 0, n3, MPI.INT, 0, 2);
+                }
+            }
+
+            // Ожидание завершения отправки всех результатов
+            Request.Waitall(requestsResult);
+        }
+
+        // Сбор результатов на процессе 0
+        if (rank == 0) {
+            Request[] requestsRecv = new Request[(size - 1) * rowsPerProc];
+            int requestIndex = 0;
+            for (int i = 1; i < size; i++) {
+                for (int j = 0; j < rowsPerProc; j++) {
+                    int row = (i - 1) * rowsPerProc + j;
+                    if (row < n1) {
+                        requestsRecv[requestIndex++] = MPI.COMM_WORLD.Irecv(resultMatrix[row], 0, n3, MPI.INT, i, 2);
+                    }
+                }
+            }
+            // Ожидание завершения всех операций приема результатов
+            Request.Waitall(requestsRecv);
         }
 
         MPI.Finalize();
