@@ -1,5 +1,6 @@
 import NonBlockReceive.FilteringAndProbe;
 import NonBlockReceive.TestReceive;
+import graphs.EdgeCount;
 import matrixoperations.MatrixMultiplication;
 import mpi.*;
 import com.google.common.base.Stopwatch;
@@ -10,8 +11,36 @@ import java.time.Duration;
 public class Main {
 
     public static void main(String[] args) throws Exception, MPIException {
-//        testCorrectMultiply(args);
-        timeMultiply(args);
+//        edgeCount(args);
+        testTimeEdgeCount(args);
+    }
+
+    public static void edgeCount(String[] args) {
+        int[][] adjacencyMatrix = {
+                {0, 1, 0, 1},
+                {1, 0, 1, 0},
+                {0, 1, 0, 1},
+                {1, 0, 1, 0}
+        };
+        EdgeCount edgeCount = new EdgeCount(adjacencyMatrix);
+        edgeCount.count(args);
+    }
+
+    public static void testTimeEdgeCount(String[] args) {
+        int[] sizes = new int[]{2500, 5000, 10000, 20000, 30000};
+        for (int size : sizes) {
+            EdgeCount edgeCount = new EdgeCount(size);
+            Stopwatch stopwatch = Stopwatch.createStarted();
+            try {
+                edgeCount.count(args);
+            } finally {
+                int rank = MPI.COMM_WORLD.Rank();
+                if (rank == 0) {
+                    Duration duration = stopwatch.elapsed();
+                    System.out.println("Size: " + size + " Time: " + duration);
+                }
+            }
+        }
     }
 
     public static void timeMultiply(String[] args) {
