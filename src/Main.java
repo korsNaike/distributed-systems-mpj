@@ -1,6 +1,7 @@
 import NonBlockReceive.FilteringAndProbe;
 import NonBlockReceive.TestReceive;
 import graphs.EdgeCount;
+import graphs.TreeCheck;
 import matrixoperations.MatrixMultiplication;
 import mpi.*;
 import com.google.common.base.Stopwatch;
@@ -12,7 +13,19 @@ public class Main {
 
     public static void main(String[] args) throws Exception, MPIException {
 //        edgeCount(args);
-        testTimeEdgeCount(args);
+//        testTimeEdgeCount(args);
+        checkTree(args);
+    }
+
+    public static void checkTree(String[] args) {
+        int[][] matrix = new int[][]{
+                {0, 1, 0, 0},
+                {1, 0, 1, 1},
+                {0, 1, 0, 1},
+                {0, 1, 1, 0}
+        };
+        TreeCheck treeCheck = new TreeCheck(matrix);
+        treeCheck.check(args);
     }
 
     public static void edgeCount(String[] args) {
@@ -22,6 +35,7 @@ public class Main {
                 {0, 1, 0, 1},
                 {1, 0, 1, 0}
         };
+        // 4 ребра: (1, 2); (1, 4); (2, 3); (3, 4);
         EdgeCount edgeCount = new EdgeCount(adjacencyMatrix);
         edgeCount.count(args);
     }
